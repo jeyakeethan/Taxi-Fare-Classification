@@ -1,0 +1,35 @@
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+import requests
+
+# file = '../input/trip-fare/train.csv'
+file = '../input/trip-fare/test.csv'
+taxidata = pd.read_csv(file, nrows = 100_000)
+taxidata.describe()
+
+url = 'https://api.distancematrix.ai/maps/api/distancematrix/json'
+
+params = dict(
+    origins='',
+    destinations='',
+    departure_time='now',
+    key='eaBChu21XGuICVhBWGwrc4eMp5prE'
+)
+taxidata["distance"] = np.nan
+taxidata["duration_t"] = np.nan
+for row in range(8570, taxidata.shape[0]+6,6):
+    print(row)
+    params['origins'] = ''
+    params['destinations'] = ''
+    for tens in range(6):
+        params['origins'] += "%.5f,%.5f|"%(taxidata.pick_lat[row+tens],taxidata.pick_lon[row+tens])
+        params['destinations'] += "%.5f,%.5f|"%(taxidata.drop_lat[row+tens], taxidata.drop_lon[row+tens])
+    params['origins'] = params['origins'][:-1]
+    params['destinations'] = params['destinations'][:-1]
+    resp = requests.get(url=url, params=params)
+    data = resp.json()
+    for tens in range(6):
+        taxidata["distance"][row+tens] =  data['rows'][tens]['elements'][tens]['distance']['value']
+        taxidata["duration_t"][row+tens] =  data['rows'][tens]['elements'][tens]['duration']['value']
+        if(row%1000==0):taxidata.to_csv('test_new3.csv', index=False)
+taxidata.to_csv('test_new3.csv', index=False)
