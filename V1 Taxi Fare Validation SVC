@@ -1,0 +1,179 @@
+# load some default Python modules
+import numpy as np
+import pandas as pd
+from sklearn import svm
+from xgboost import XGBClassifier
+
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+# % matplotlib inline
+plt.style.use('seaborn-whitegrid')
+
+import warnings
+warnings.filterwarnings('ignore')
+
+"""Read data from CSV files into pandas dataframes"""
+taxidata =  pd.read_csv('../input/newdata/train_new.csv', nrows = 100_000, parse_dates=["pickup_time", "drop_time"], index_col='tripid')
+taxidata.shape
+taxidata.describe()
+taxidata.head()
+
+"""---Preprocessing data and split into train and test data---"""
+"""Count the number of NaNs each column has."""
+nans=pd.isnull(taxidata).sum()
+nans[nans>0]
+
+
+"""Convert correct incorrect strings into Boolean values"""
+mat_t = {'correct': True, 'incorrect': False}
+taxidata['label'] = taxidata['label'].replace(mat_t)
+
+# taxidata["distance"] = np.sqrt(np.sum(np.square([taxidata["pick_lat"]-taxidata["drop_lat"], taxidata["pick_lon"]-taxidata["drop_lon"]]), axis=0))*10000
+# taxidata["distance"] = (taxidata["pick_lat"]-taxidata["drop_lat"]).abs()*300+(taxidata["pick_lon"]-taxidata["drop_lon"]).abs()*300
+# (((taxidata["pick_lat"]-taxidata["drop_lat"])**2 + (taxidata["pick_lon"]-taxidata["drop_lon"])**2 )**0.5)*10000
+
+
+"""Select columns to be considered"""
+# all_columns = taxidata.columns.values
+# non_categorical = ["pickup_time", "drop_time", "pick_lat", "pick_lon", "drop_lat", "drop_lon","duration_t"]
+# categorical =  ['additional_fare', 'duration', 'meter_waiting', 'meter_waiting_fare', 'meter_waiting_till_pickup', 'pickup_time',\
+                #'drop_time', 'pick_lat', 'pick_lon', 'drop_lat', 'drop_lon', 'fare', 'label', 'distance']
+categorical = [\
+#                 'additional_fare',\
+                'duration',\
+                'meter_waiting',\
+#                 'meter_waiting_fare',\
+#                 'meter_waiting_till_pickup',\
+                'fare',\
+                'distance', 'label']
+taxidata = taxidata[categorical]
+
+
+
+
+"""Drop the noisy data NaNs and clean"""
+taxidata=taxidata.fillna(value={'fare': 0, 'additional_fare':0,	'duration':0,	'meter_waiting':0, 'meter_waiting_fare':0,	'meter_waiting_till_pickup':0})
+# taxidata=taxidata.dropna(how='any',axis=0)
+# taxidata[taxidata==-np.inf]=0
+
+"""Remove outliers"""
+# taxidata = taxidata[\
+#                     (taxidata.meter_waiting_fare==0) | (taxidata.meter_waiting!=0)& \
+# #                     (taxidata.duration-taxidata.meter_waiting>10)&\
+#                     (taxidata.distance<50000)&\
+#                     (taxidata.distance>1000)&\
+# #                   (taxidata.meter_waiting_till_pickup<5000)&\
+#                     (taxidata.duration>500)&\
+#                     (taxidata.duration<80400)\
+# #                     |(taxidata.label==False)
+#                     ]
+
+
+taxidata.describe()
+# taxidata = taxidata[taxidata.apply(lambda x: np.abs(x - x.mean()) / x.std() < 8).all(axis=1)]
+# taxidata = taxidata[((taxidata.meter_waiting_fare - taxidata.meter_waiting_fare.mean()) / taxidata.meter_waiting_fare.std()).abs() < 3]
+
+"""Look into the data structure"""
+taxidata.shape
+taxidata.head()
+taxidata.describe()
+taxidata.dtypes.value_counts()    # Count the column types
+
+"""Extract the label and feature into y and X"""
+X = taxidata.drop('label', axis=1)
+y = taxidata['label']
+
+"""split data for train and test"""
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, shuffle=True)
+
+for c in range(1,2):
+    """---Fit an SVC model for the train data---"""
+    """Fit the train data into a model"""
+    svc_model = svm.SVC(C=1.0, kernel="rbf", gamma=0.0000064, probability=False, class_weight="balanced")
+#     svc_model = svm.SVC(C=1, kernel="rbf", gamma=c/10000000 or 1, probability=False, class_weight="balanced")
+
+
+    svc_model.fit(X_train, y_train)
+
+
+    """---Evaluate the model accuracy with the test data---"""
+    """Predict the labels for test data"""
+    y_pred = svc_model.predict(X_test)
+
+
+    """Evalute model"""
+    print(c,f1_score(y_test,y_pred,average='macro'))
+    print(confusion_matrix(y_test,y_pred))
+    print(classification_report(y_test,y_pred))
+
+"""Save predicted labels in a CSV File for comparison"""
+resulted_label = pd.DataFrame({
+        "labelold": y_test,
+        "labelnew": y_pred
+    })
+
+resulted_label.describe()
+resulted_label.head()
+
+X_test = X_test.join(resulted_label, on='tripid')
+X_test.head()
+X_test.describe()
+# map_t_inv = {True : 'correct', False : 'incorrect'}
+# X_test['labelnew'] = X_test['labelnew'].replace(map_t_inv)
+# X_test['labelold'] = X_test['labelold'].replace(map_t_inv)
+
+X_test.to_csv("Test_Data_Predicted.csv")
+
+
+"""---Predict the values for required data---"""
+# read data in pandas dataframe
+df_prediction =  pd.read_csv('../input/trip-fare/test.csv', nrows = 100_000, parse_dates=["pickup_time", "drop_time"])
+df_prediction["distance"] = np.sqrt(np.sum(np.square([df_prediction["pick_lat"]-df_prediction["drop_lat"], df_prediction["pick_lon"]-df_prediction["drop_lon"]]), axis=0))*10000
+df_prediction1 = df_prediction[:]
+df_prediction = df_prediction[[i for i in categorical if i!='label']]
+
+# Sigma = 1000
+# df_prediction.loc[(df_prediction.distance<50000)&(df_prediction.distance>1000), 'above'] = Sigma
+# df_prediction.loc[(df_prediction.above!=Sigma), 'above'] = 1
+
+
+# df_prediction['above'] = (df_prediction.distance<50000)&\
+#                     (df_prediction.distance>1000)&\
+#                     (df_prediction.duration>500)&\
+#                     (df_prediction.duration<80400)
+y_pred_real = svc_model.predict(df_prediction)
+
+"""Save predicted labels in a CSV File for comparison"""
+results = pd.DataFrame({
+        "tripid": df_prediction1['tripid'],
+        "prediction": y_pred_real
+    })
+
+# map_t_inv = {True : 'correct', False : 'incorrect'}
+# results['label'] = results['label'].replace(map_t_inv)
+
+# df_prediction = pd.DataFrame(df_prediction)
+# df_prediction = df_prediction.join(results)
+
+results.describe()
+results.head()
+
+results.to_csv("160256U_predicted_output.csv", index=False)
+
+"""---Commented area---"""
+# One Hot Encoding and nan transformation
+# data = pd.get_dummies(data)
+
+# imp = SimpleImputer(missing_values=np.nan, strategy='most_frequent')
+# data = pd.DataFrame(imp.fit_transform(data.values))
+# data = pd.get_dummies(data)
+
+# Log transformation
+# data = np.log(data)
+# labels = np.log(labels)
+
